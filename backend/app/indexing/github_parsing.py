@@ -1,5 +1,5 @@
 from urllib.parse import urlparse
-import httpx
+import httpx, os
 import ast
 from io import BytesIO
 from zipfile import ZipFile
@@ -92,65 +92,58 @@ class GitHubParser:
                 if resp.status_code == 200:
                     return resp.content
         raise ConnectionError("Could not download ZIP (ref not found or repo private).")
-    
+
     def get_files_from_zip(self, zip_bytes: bytes, max_bytes: int = MAX_FILE_BYTES) -> list[File]:
         """Extract and process files from a ZIP archive.
-        
+
         Args:
             zip_bytes: Raw ZIP file content as bytes
             max_bytes: Maximum file size in bytes to process (default: MAX_FILE_BYTES)
-            
+
         Returns:
             List of File objects containing content, path, and extension for each processed file
-            
+
         Note:
             Only processes files with extensions in DEFAULT_EXTS (.py, .md).
             Skips directories and files exceeding max_bytes limit.
             Text encoding falls back from UTF-8 to Latin-1 if decoding fails.
         """
-         
         files = []
         with ZipFile(BytesIO(zip_bytes)) as zip_file:
-            
-            # TODO: use the os.path.commonpath function to extract the common root path for every file in the zip file. 
-            # You can iterate through all the filenames by using:
-            # [i.filename for i in zip_file.infolist()]
-            # The prefix variable will be the result of that common root path + "/". 
-            prefix = None
+
+            prefix = os.path.commonpath([i.filename for i in zip_file.infolist()]) + "/"
             for info in zip_file.infolist():
-                text = None
-                path = None
-                extension = None
-                # TODO: Filter the files by ignoring:
-                # - The directories: info.is_dir()
-                # - The file names that do not start with the prefix.
-                # - The files with more data than MAX_FILE_BYTES: info.file_size > max_bytes.
-                # - The non-documentation or Python files: DEFAULT_EXTS = {".py", ".md"}.
-                # 
-                # You can extract the extensions by using the os.path.splitext function:
-                # os.path.splitext(path)[1].lower()
-                #
-                # For the non-ignored file extract the content:
-                # with zip_file.open(info) as f:
-                #     raw = f.read()
-                #     try:
-                #         text = raw.decode("utf-8").strip()
-                #     except UnicodeDecodeError:
-                #         text = raw.decode("latin-1", errors="replace").strip()
-        
-        # Return a list of File data structures.
+                if info.is_dir() or info.file_size > max_bytes:
+                    continue
+                inner = info.filename
+                if not inner.startswith(prefix):
+                    continue
+                rel = inner[len(prefix):]  # repo-relative
+                ext = os.path.splitext(rel)[1].lower()
+                if ext not in DEFAULT_EXTS:
+                    continue
+                # Read & decode (assume utf-8; fall back to latin-1 with replacement)
+                with zip_file.open(info) as f:
+                    raw = f.read()
+                try:
+                    text = raw.decode("utf-8").strip()
+                except UnicodeDecodeError:
+                    text = raw.decode("latin-1", errors="replace").strip()
+
+                file = File(content=text, path=rel, extension=ext)
+                files.append(file)
         return files
-    
-    def parse_code(self, file: File, max_lines_per_elem: int = 200) -> list[CodeElement]:
+
+    def parse_code(self, file: File, max_lines_per_elem: int = 150) -> list[CodeElement]:
         """Parse Python code into structured CodeElement objects with intelligent chunking.
-        
+
         Args:
             file: File object containing Python source code to parse
-            max_lines_per_elem: Maximum lines per code element before splitting (default: 200)
-            
+            max_lines_per_elem: Maximum lines per code element before splitting (default: 100)
+
         Returns:
             List of CodeElement objects, each containing logically grouped code chunks
-            
+
         Note:
             Intelligently splits large classes into multiple elements while preserving context.
             Groups related functions and maintains header context with imports/globals.
@@ -163,6 +156,7 @@ class GitHubParser:
             return []
 
         source = file.path
+        extension = file.extension
         lines = file.content.splitlines()
         lines = [line[: 200] + '\n' for line in lines]
 
@@ -171,22 +165,22 @@ class GitHubParser:
             # Find the earliest line (decorators come before the node itself)
             start = min([node.lineno] + [d.lineno for d in getattr(node, "decorator_list", [])])
             end = getattr(node, "end_lineno", node.lineno)  # fallback if end_lineno missing
-            return lines[start-1:end]  # Convert to 0-based indexing
-        
+            return lines[start - 1:end]  # Convert to 0-based indexing
+
         def split_class(node: ast.ClassDef) -> list[list[str]]:
             """Split large classes into multiple chunks while preserving structure."""
             class_lines = slice_node(node)
             # If class fits within limit, return as single chunk
             if len(class_lines) <= max_lines_per_elem:
                 return [class_lines]
-            
+
             # Split large class into multiple parts
             class_parts = []
             part = [f'class {node.name}:\n']  # Start each part with class header
-            
+
             for sub_node in node.body:
                 sub_node_lines = slice_node(sub_node)
-                
+
                 # If adding this method/attribute would exceed limit, finalize current part
                 if len(part) + len(sub_node_lines) > max_lines_per_elem and len(part) > 1:
                     part.append('    ...\n')  # Indicate continuation
@@ -201,94 +195,111 @@ class GitHubParser:
                 class_parts.append(part)
             return class_parts
 
-        # Initializing the variables
         headers: list[str] = []
         code_elements: list[CodeElement] = []
         previous_text: list[str] = []
 
         for node in tree.body:  # top-level order
-            # TODO: Use slice_node to extract the lines of the current node
-            node_text = None
-            # TODO: Classify the current top-level node:
-            #  - Function / AsyncFunction  -> treat as an atomic code chunk.
-            #  - Class                     -> split into bounded parts via split_class(node).
-            #  - Anything else             -> treat as header (top-level non-def/class code).
+            node_text = slice_node(node)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                # TODO: If it's a Function/AsyncFunction:
-                # - If adding this function to `previous_text` would exceed `max_lines_per_elem`,
-                # emit `previous_text` as a CodeElement and clear it (do NOT split the function).
-                # - Append the function's lines (`node_text`) to `previous_text` (prefix with "\n" if needed).
-                pass
+                if previous_text and (len(previous_text) + len(node_text)) > max_lines_per_elem:
+                    code_elements.append(
+                        CodeElement(
+                            text=''.join(previous_text).strip(),
+                            source=source,
+                            header=''.join(headers).strip() if headers else None,
+                            extension=extension
+                        )
+                    )
+                    previous_text = []
+
+                previous_text = previous_text + ["\n"] + node_text if previous_text else node_text
             elif isinstance(node, ast.ClassDef):
-                # TODO: If it's a Class:
-                # - Call `split_class(node)` to get a list of class parts. For each `part`:
-                # * If adding `part` to `previous_text` would exceed `max_lines_per_elem`,
-                # emit `previous_text` as a CodeElement and clear it.
-                # * Append `part` to `previous_text` (prefix with "\n" if needed).
-                # (Note: `split_class` never splits methods; it repeats `class Name:` and uses '...' to mark continuation.)
-                pass
+                class_parts = split_class(node)
+                for part in class_parts:
+                    if previous_text and (len(previous_text) + len(part)) > max_lines_per_elem:
+                        code_elements.append(
+                            CodeElement(
+                                text=''.join(previous_text).strip(),
+                                source=source,
+                                header=''.join(headers).strip() if headers else None,
+                                extension=extension
+                            )
+                        )
+                        previous_text = []
+                    previous_text = previous_text + ["\n"] + part if previous_text else part
             else:
-                # TODO: If it's neither function nor class:
-                # - Extend `headers` with `node_text` (we include all top-level non-def/class lines in the header).
-                pass
+                headers.extend(node_text)
 
         # Emit leftover (may be < min_lines)
-        # TODO: If there are some leftovers in previous_text, add a new CodeElement to code_elements.
+        if previous_text:
+            code_elements.append(
+                CodeElement(
+                    text=''.join(previous_text).strip(),
+                    source=source,
+                    header=''.join(headers).strip() if headers else None,
+                    extension=extension
+                )
+            )
 
         # If no defs/classes at all, return whole file as one element with whatever header we collected
-        # TODO: If there are no code elements at this point, this means there are only header elements. In this case, add the whole file content without any header to a CodeElement.
+        if not code_elements:
+            code_elements.append(CodeElement(text=file.content.strip(), source=source, extension=extension))
 
         return code_elements
-    
+
     def parse_markdown(self, file: File, min_lines_per_elem: int = 100, overlap_lines: int = 5) -> list[CodeElement]:
         """Parse Markdown content into overlapping CodeElement chunks.
-        
+
         Args:
             file: File object containing Markdown content to parse
             min_lines_per_elem: Lines per chunk (default: 100)
             overlap_lines: Number of overlapping lines between chunks (default: 5)
-            
+
         Returns:
             List of CodeElement objects with chunked Markdown content
-            
+
         Note:
             Creates overlapping chunks to preserve context across boundaries.
             Step size = min_lines_per_elem - overlap_lines to ensure forward progress.
             Overlap is clamped to be less than chunk size to avoid infinite loops.
         """
         source = file.path
-        extension = file.extension
         lines = file.content.splitlines(keepends=True)
+        extension = file.extension
         num_lines = len(lines)
 
-        # TODO: Clamp overlap_lines to ensure that it is between 0 and min_lines_per_elem - 1.
-        overlap_lines = None
-        # TODO: Implement the step variable as min_lines_per_elem - overlap_lines.
-        step = None
+        # Clamp overlap and compute step (so we move forward but keep overlap)
+        overlap_lines = max(0, min(overlap_lines, min_lines_per_elem - 1))
+        step = max(1, min_lines_per_elem - overlap_lines)
 
         chunks: list[CodeElement] = []
         for start in range(0, num_lines, step):
-            # TODO: Iterate through the lines, and capture a CodeElement without a header for 
-            # each chunk of text of size min_lines_per_elem, every step lines.
-            pass
+            end = start + min_lines_per_elem
+            chunk_text = "".join(lines[start:end])
+            chunks.append(CodeElement(text=chunk_text, source=source, extension=extension))
 
         return chunks
-    
+
     def parse_repo(self) -> list[CodeElement]:
         """Parse the GitHub repository into structured code elements.
-        
+
         Returns:
             List of CodeElement objects containing parsed content from Python and Markdown files
-            
+
         Note:
             Downloads the repository ZIP using instance attributes (owner, repo, ref).
             Processes .py files using AST parsing and .md files using chunk-based parsing.
             Filters files based on DEFAULT_EXTS and MAX_FILE_BYTES limits.
         """
-        # TODO: The main function of the class
-        # - Fetch the repo byte data
-        # - Extract the files from the zip file
-        # - If the extension is .py, then we should extract the code, and if it .md, we should extract the markdown
-        # - Return all the code elements from the repo
-        code_elements = []         
+        zip_bytes = self.fetch_repo_zip()
+        files = self.get_files_from_zip(zip_bytes)
+
+        code_elements = []
+        for file in files:
+            if file.extension == '.py':
+                code_elements.extend(self.parse_code(file))
+            if file.extension == '.md':
+                code_elements.extend(self.parse_markdown(file))
+
         return code_elements

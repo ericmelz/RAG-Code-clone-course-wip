@@ -15,6 +15,7 @@ dependencies = [
     "pinecone>=7.3.0",
     "pinecone-text[splade]>=0.11.0",
     "pydantic>=2.11.7",
+    "python-dotenv>=1.1.1",
     "sqladmin>=0.21.0",
     "sqlalchemy>=2.0.43",
 ]

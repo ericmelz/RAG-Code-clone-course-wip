@@ -232,7 +232,8 @@ dist/
 *~
 
 # Exclude frontend folder
-frontend/
+# commented -erm
+#frontend/
 
 # OS generated files
 .DS_Store

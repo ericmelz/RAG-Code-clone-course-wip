@@ -67,28 +67,30 @@ class GitHubParser:
         if len(parts) >= 4 and parts[2] in {"tree", "blob"}:
             ref = parts[3]
         return owner, repo, ref
-    
+
     def fetch_repo_zip(self, timeout: float = 60.0) -> bytes:
         """Download this GitHub repository as a ZIP file.
-        
+
         Args:
             timeout: Request timeout in seconds (default: 60.0)
-            
+
         Returns:
             Raw ZIP file content as bytes
-            
+
         Raises:
             ConnectionError: If repository cannot be downloaded (not found, private, or network error)
-            
+
         Note:
             Uses the repository's owner, repo, and ref attributes set during initialization.
             If no ref is specified, tries 'main' then 'master' branches.
         """
-        # TODO: Implement fetch_repo_zip function:
-        # - If the reference is None, try 'master' and 'main', otherwise use the one existing one.
-        # - Construct the URL from the BASE_URL (https://codeload.github.com), the owner, the repo name, and the different references. 
-        # - Instantiate the httpx.Client client with follow_redirects=True and timeout, and call client.get on the URL.
-        # - If the response from the HTTP call is not 200 (success), then raise a connection error.
+        refs_to_try = [self.ref] if self.ref else ["main", "master"]
+        with httpx.Client(follow_redirects=True, timeout=timeout) as client:
+            for r in refs_to_try:
+                url = f"{BASE_URL}/{self.owner}/{self.repo}/zip/{r}"
+                resp = client.get(url)
+                if resp.status_code == 200:
+                    return resp.content
         raise ConnectionError("Could not download ZIP (ref not found or repo private).")
     
     def get_files_from_zip(self, zip_bytes: bytes, max_bytes: int = MAX_FILE_BYTES) -> list[File]:

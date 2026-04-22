@@ -3,6 +3,7 @@ import httpx
 import ast
 from io import BytesIO
 from zipfile import ZipFile
+import logging
 
 from app.indexing.schemas import File, CodeElement
 
@@ -37,24 +38,34 @@ class GitHubParser:
 
     def parse_url(self, url: str) -> tuple[str, str, str | None]:
         """Parse a GitHub URL to extract owner, repository name, and optional reference.
-        
+
         Args:
             url: GitHub URL (e.g., 'https://github.com/owner/repo' or 'https://github.com/owner/repo/tree/branch')
-            
+
         Returns:
             Tuple containing (owner, repo, ref) where ref is None if not specified in URL
-            
+
         Raises:
             ValueError: If URL is not a valid GitHub URL or doesn't contain owner/repo
         """
-        owner, repo, ref = '', '', None
-        # TODO: Implement the parse_url function:
-        # - Use the urlparse function to parse the URL.
-        # - Make sure the netloc attribute is equal to "github.com". Raise an error if it is not the case
-        # - Split the path by the slash character "/".
-        # - If the path doesn't contain at least 2 pieces, there is a problem, and we should raise an error in that case.
-        # - The first part of the path is the owner, and the second part is the repo name. In the specific case the URL is passed with the .git suffix, we need to remove it. For example, from https://github.com/huggingface/transformers.git , we should extract huggingface and transformers.
-        # - If the path contains at least 4 parts and the third part is equal to tree or blob, then the fourth part is the reference. In any other cases, let's set the reference value to None.
+
+        try:
+            p = urlparse(url)
+        except Exception as e:
+            logging.error(f"Error parsing the URL: {str(e)}")
+            raise e
+
+        if p.netloc.lower() != "github.com":
+            raise ValueError("Only github.com URLs are supported")
+
+        parts = [x for x in p.path.strip("/").split("/") if x]
+        if len(parts) < 2:
+            raise ValueError("URL must be of the form github.com/<owner>/<repo>[/...]")
+
+        owner, repo = parts[0], parts[1].removesuffix(".git")
+        ref = None
+        if len(parts) >= 4 and parts[2] in {"tree", "blob"}:
+            ref = parts[3]
         return owner, repo, ref
     
     def fetch_repo_zip(self, timeout: float = 60.0) -> bytes:

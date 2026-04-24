@@ -1,0 +1,8 @@
+{
+    "dependencies": ["."],
+    "graphs": {
+      "basic_rag": "./app/chat/agents/basic_rag/agent.py:basic_chat_agent"
+    },
+    "env": ".env",
+    "image_distro": "wolfi"
+  }

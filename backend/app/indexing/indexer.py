@@ -16,9 +16,95 @@ logger = logging.getLogger(__name__)
 
 INDEX_NAME = "github-repo-index"
 
-# TODO: implement your system prompt.
-SYSTEM_PROMPT = None
-FILTER_SYSTEM_PROMPT = None
+SYSTEM_PROMPT = """
+**Role & goal**  
+You are **ChunkDescriber**: a precise, non-speculative summarizer for RAG indexing. You receive a chunk of content that is either **code** or **documentation** and must return a concise, factual description. The summary will be embedded, so keep it dense, informative, and free of fluff.
+
+## Inputs (variables)
+- **KIND** — `".py"` or `".md"`.
+- **TEXT** — exact chunk text.
+- **PATH** — repo-relative file path.
+- **HEADER** — optional context (imports/front-matter/breadcrumbs); may be empty.
+
+## Primary task
+- If **KIND = ".py"**: describe what the code does **at runtime**.
+  Focus on: purpose; inputs/outputs; side effects (filesystem/network/db/stdout/logging/random/time/env/global state/concurrency); external APIs/libraries; notable control flow (retry/caching/memoization/error handling); invariants/constraints.  
+  If tests, summarize the behavior/spec asserted. If partial, say so and describe only what's visible.
+
+- If **KIND = ".md"**: describe what the text explains or specifies.
+  Focus on: purpose & audience; key topics/sections; procedures/steps or workflows; commands/API endpoints/config flags/parameters; expected outcomes; prerequisites/assumptions; notable links/anchors; important tables or code fences (languages).  
+  Describe only what's visible.
+
+## Strict rules
+- **No speculation.** Only claim facts visible in TEXT/HEADER/TITLE. If unknown, say “unknown” or omit.
+- **No line-by-line narration** or pseudocode. Prefer compact, declarative summaries.
+- **Do not invent** types, effects, or claims not evidenced in the chunk.
+- **No chain-of-thought.** Provide conclusions only.
+- Keep the **summary ≤ 200 words** (up to 250 if unusually complex).
+- Use domain terms as written (e.g., *S3*, *SQLAlchemy*, *requests*, *NumPy*, *kubectl*).
+
+## Tone and style Neutral, technical, terse. No marketing language. No hypotheticals beyond what the code shows.
+"""
+FILTER_SYSTEM_PROMPT = """
+You are **FilterSelector**, a strict router that sets `DocumentType.type` to choose the best file-type filter for retrieval.
+
+## Goal
+Given a user query, return exactly one of:
+- **'code'** → prioritize Python source files (maps to ['.py'])
+- **'doc'**  → prioritize Markdown docs (maps to ['.md'])
+- **'both'** → include both when the query likely needs code and docs, or is ambiguous (maps to ['.py', '.md'])
+
+The runtime will map your choice to the Pinecone filter; you **must only** choose the label.
+
+## Inputs
+- `query`: the raw user query string (may include typos).
+
+## Decision rules
+1) Choose **'code'** when the query strongly targets implementation details or APIs:
+   - Mentions functions/methods/classes or code tokens: “forward”, “__init__”, “def”, “class”, “args”, “return”.
+   - Debugging/behavior/stack traces: “TypeError”, “AttributeError”, “why does this crash”.
+   - Code usage inside scripts: “how to call”, “example code”, “unit test”, “refactor”.
+
+2) Choose **'doc'** for conceptual/usage/overview/installation material:
+   - “explain”, “overview”, “installation”, “configuration”, “prerequisites”, “limitations”, “tutorial”, “README”, “guide”, “FAQ”, “changelog”.
+
+3) Choose **'both'** when:
+   - The query mixes concept + implementation (e.g., “how attention masking works and how to call it”).
+   - The query is short or ambiguous (“Llama tokenizer”, “adapter config”).
+   - You can't confidently decide after applying 1-2.
+
+### Tie-breakers
+- Names a **specific function/method/class** → **'code'**.
+- Names a **README / doc section** → **'doc'**.
+- If still uncertain → **'both'**.
+
+## Output format (STRICT)
+Return **only** a JSON object valid for the Pydantic model:
+{"type": "code" | "doc" | "both"}
+
+No extra fields, no prose, no code fences.
+
+## Examples
+- Query: "Llama forward function"
+  → {"type":"code"}
+  Reason: Mentions a function; implementation likely in Python code.
+
+- Query: "Install and configure the Llama repo"
+  → {"type":"doc"}
+  Reason: Installation/config are in docs/README.
+
+- Query: "How does attention masking work and how to call it from my script?"
+  → {"type":"both"}
+  Reason: Needs concept (docs) and call pattern (code).
+
+- Query: "README section on training settings"
+  → {"type":"doc"}
+  Reason: Explicitly asks for README section.
+
+- Query: "TypeError in LlamaTokenizer.from_pretrained"
+  → {"type":"code"}
+  Reason: Stacktrace/debugging a Python API call.
+"""
 
 class DocumentType(BaseModel):
     type: Literal['code', 'doc', 'both'] = Field(
@@ -28,195 +114,201 @@ class DocumentType(BaseModel):
 
 class Indexer:
 
-    def __init__(self, owner, repo, ref, namespace) -> None:
-        
-        # TODO: Create a namespace for the repo. Namespaces can use alphanumeric and dash '-' characters.
-        self.namespace = None
-        if not pinecone_client.has_index(INDEX_NAME):
-            # TODO: if the index does not exist, use the pinecone_client.create_index function to create it. 
-            # - Even if we use hybrid search, we will need to define the vector_type as "dense"
-            # - Pass the index name
-            # - The default dimension of the vector coming from OpenAI's Embedding model is 1536. 
-            # That will be the number for the dimension argument. 
-            # - BM25 and SPLADE require a dot product similarity metric to retrieve the vectors. 
-            # With dense vectors, it is usually better to use the cosine similarity metric. 
-            # To recover the cosine similarity metric, we will need to normalize the vectors and use 
-            # the "dotproduct" as the default similarity metric (in the metric argument).
-            # - Pass spec=ServerlessSpec(cloud="aws", region="us-east-1").
-            pass
+    def __init__(self, owner=None, repo=None, ref=None, namespace=None) -> None:
 
-        # TODO:  Instantiate the Pinecone index using the Index class.
-        self.index = None
+        self.namespace = namespace or (f"{owner}-{repo}-{ref}" if ref else f"{owner}-{repo}")
+        if not pinecone_client.has_index(INDEX_NAME):
+            pinecone_client.create_index(
+                name=INDEX_NAME,
+                vector_type="dense",
+                dimension=1536,
+                metric="dotproduct",
+                spec=ServerlessSpec(cloud="aws", region="us-east-1")
+            )
+
+        self.index = pinecone_client.Index(INDEX_NAME)
 
     async def summarize_element(self, code_element: CodeElement) -> str:
         """Generate a concise description for a code element using AI.
-        
+
         Args:
             code_element: CodeElement object containing code/doc content to summarize
-            
+
         Returns:
             String containing AI-generated summary text (or existing description if available)
-            
+
         Note:
             Returns existing description if already set to avoid redundant API calls.
             Uses OpenAI's GPT model to create factual descriptions based on SYSTEM_PROMPT.
             Returns None on API errors (logs exception to stdout).
         """
 
-        # TODO: Create the messages that will be passed to the input argument. 
-        # The messages are a list of messages. A message is a dictionary with a role 
-        # ("system", "assistant", "user", "tool") and a content (the text of the message). For example:
-        #   {'role': 'system', 'content': SYSTEM_PROMPT}``
-        # 
-        # We need a message for the system prompt and a message to expose the CodeElement content. 
-        # For the CodeElement message, you can use the role user. For the text of the message,
-        #  you can dump the text of a Pydantic model by using:
-        # `code_element.model_dump_json(indent=2, exclude_none=True)``
-        messages = []
+        messages = [
+            {'role': 'system', 'content': SYSTEM_PROMPT},
+            {'role': 'user', 'content': f"Code chunk:\n\n{code_element.model_dump_json(indent=2, exclude_none=True)}"}
+        ]
 
-        try: 
-            # TODO: In async_openai_client.responses.create, choose a model (e.g. model='gpt-4.1-nano'), 
-            # and pass the messages to the input argument. I like 'gpt-4.1-nano' as it is cheap and fast. 
-            # You can pass a temperature to the temperature argument. I like to choose temperature=0.1, 
-            # to get close to deterministic results, but to allow the LLM not to be stuck in local minima.
-            response = await async_openai_client.responses.create(...)
+        try:
+            response = await async_openai_client.responses.create(
+                model='gpt-4.1-nano',
+                input=messages,
+                temperature=0.1,
+                timeout=30.0
+            )
             return response.output_text
         except Exception as e:
-            logger.error(f"Problem with summarizing: {str(e)}")
+            print(e)
 
     async def summarize_batch(self, code_elements: list[CodeElement]) -> list[CodeElement]:
         """Generate AI summaries for a batch of code elements concurrently.
-        
+
         Args:
             code_elements: List of CodeElement objects to summarize
-            
+
         Returns:
             Same list of CodeElement objects with description field populated
-            
+
         Note:
             Processes all elements in parallel using asyncio.gather().
             Handles exceptions gracefully - only updates description if AI call succeeds.
             Modifies input objects in-place by setting their description attribute.
         """
 
-        # TODO: Create a list of tasks for all the code_elements using the create_task function. 
-        # Await the response from all those tasks using the gather function.
-        tasks = []
-        descriptions = None
-        # TODO: For all the retrieved descriptions, assign the text of the description 
-        # to the description parameter in the related CodeElement instance.
+        tasks = [
+            asyncio.create_task(self.summarize_element(element))
+            for element in code_elements
+        ]
+        descriptions = await asyncio.gather(*tasks, return_exceptions=True)
+        for element, description in zip(code_elements, descriptions):
+            if isinstance(description, str):
+                element.description = description.strip()
+
         return code_elements
-    
-    async def summarize_all(self, code_elements: list[CodeElement], batch_size: int = 1000) -> list[CodeElement]:
+
+    async def summarize_all(self, code_elements: list[CodeElement], batch_size: int = 500) -> list[CodeElement]:
         """Generate AI summaries for all code elements in batches.
-        
+
         Args:
             code_elements: List of CodeElement objects to summarize
             batch_size: Number of elements to process per batch (default: 1000)
-            
+
         Returns:
             Same list of CodeElement objects with description fields populated
-            
+
         Note:
             Processes elements in batches to manage memory and API rate limits.
             Each batch is processed concurrently using summarize_batch().
             Modifies input objects in-place by setting their description attribute.
         """
-        # TODO: Implement summarize_all. Iterate through batches of size
-        # batch_size and call summarize_batch for each batch.
+        for i in range(0, len(code_elements), batch_size):
+            batch = code_elements[i:i + batch_size]
+            await self.summarize_batch(batch)
         return code_elements
-    
-    async def embed_batch(self,  batch: list[CodeElement]) -> list[list[float]]:
+
+    async def embed_batch(self, batch: list[CodeElement]) -> list[list[float]]:
         """Generate embeddings for a batch of code elements using OpenAI.
-        
+
         Args:
             batch: List of CodeElement objects with populated description fields
-            
+
         Returns:
             List of embedding vectors (each vector is a list of floats)
-            
+
         Note:
             Uses OpenAI's text-embedding-3-small model to embed element descriptions.
             Assumes all elements have valid description attributes set.
         """
-        # TODO: Implement the embed_batch function by using the 
-        # embeddings.create function with the description of the CodeElement
-        raise NotImplemented
-    
+
+        response = await async_openai_client.embeddings.create(
+            input=[el.description for el in batch],
+            model="text-embedding-3-small"
+        )
+        embeddings = [res.embedding for res in response.data]
+        return embeddings
+
     async def embed_all(self, code_elements: list[CodeElement], batch_size: int = 1000) -> list[list[float]]:
         """Generate embeddings for all code elements in batches sequentially.
-        
+
         Args:
             code_elements: List of CodeElement objects with populated description fields
             batch_size: Number of elements to process per batch (default: 1000)
-            
+
         Returns:
             List of embedding vectors for all input elements
-            
+
         Note:
             Processes batches sequentially to avoid overwhelming the API.
             Relies on OpenAI client's internal concurrency for optimal performance.
         """
         embeddings = []
-        # TODO: Implement the embed_all function. Iterate through all the code 
-        # elements and send them in batches to the embed_batch function.
+        for i in range(0, len(code_elements), batch_size):
+            batch = code_elements[i:i + batch_size]
+            batch_embeddings = await self.embed_batch(batch)
+            embeddings.extend(batch_embeddings)
         return embeddings
-    
+
     def bm25_encode(self, code_elements: list[CodeElement]) -> list[SparseVector]:
         """Generate BM25 sparse vectors for code elements using their text content.
-        
+
         Args:
             code_elements: List of CodeElement objects to encode
-            
+
         Returns:
             List of SparseVector objects containing BM25-encoded representations
-            
+
         Note:
             Fits BM25 encoder on the corpus of all element texts, then encodes each document.
             Uses text field (not description) for encoding to preserve original content structure.
             Saves fitted BM25 parameters to backend/BM25_params/{namespace}.json for query encoding.
         """
-        # TODO: Implement bm25_encode: 
-        # - Instantiate the BM25Encoder from pinecone_text.
-        # - Create a corpus of text documents using the original text value of the CodeElement. 
-        # - Fit the corpus of text.
-        # - Save the model parameters using the bm25.dump function. Use the namespace as a unique identifier for the encoder.
-        # - Encode all documents and return the results
-        raise NotImplemented
-    
+        bm25 = BM25Encoder()
+        corpus = [el.text for el in code_elements]
+        bm25.fit(corpus)
+
+        # Create BM25_params directory at the same level as app folder
+        params_dir = Path(__file__).parent.parent.parent / "BM25_params"
+        params_dir.mkdir(exist_ok=True)
+
+        # Save with namespace name
+        params_file = params_dir / f"{self.namespace}.json"
+        bm25.dump(params_file)
+
+        document_vectors = bm25.encode_documents(corpus)
+        return document_vectors
+
     def splade_encode(
-        self,
-        code_elements: list[CodeElement],
-        max_characters: int = 1000,
-        stride: int = 500,
-        batch_size: int = 32 
+            self,
+            code_elements: list[CodeElement],
+            max_characters: int = 1000,
+            stride: int = 500,
+            batch_size: int = 32
     ) -> list[SparseVector]:
         """Generate SPLADE sparse vectors for code elements using efficient batched encoding.
-        
+
         Args:
             code_elements: List of CodeElement objects to encode
             max_characters: Maximum characters per sliding window chunk (default: 1000)
             stride: Step size between chunk starts, creates overlap (default: 500)
             batch_size: Number of text chunks to encode per SPLADE batch (default: 32)
-            
+
         Returns:
             List of SparseVector objects, one per input element with merged window vectors
-            
+
         Note:
             Uses sliding windows to handle long texts, batched encoding for efficiency,
             and max-pooling to merge multiple windows per document into single vectors.
         """
         encoder = SpladeEncoder()
-        
+
         def _create_windows(text: str) -> list[str]:
             """Split text into overlapping chunks using sliding window approach."""
             if not text: return []
             chunks = []
             for start in range(0, len(text), stride):
-                text_chunk = text[start:start+max_characters].strip()
+                text_chunk = text[start:start + max_characters].strip()
                 if text_chunk: chunks.append(text_chunk)
             return chunks
-            
+
         # Step 1: Create sliding windows for each document, tracking document IDs
         windows: list[tuple[int, str]] = []
         for doc_id, element in enumerate(code_elements):
@@ -224,7 +316,7 @@ class Indexer:
             element_windows = _create_windows(element.text) or ([element.text] if element.text.strip() else [])
             for window_text in element_windows:
                 windows.append((doc_id, window_text))
-                
+
         # Handle case where no valid windows exist
         if not windows:
             return [{"indices": [], "values": []} for _ in code_elements]
@@ -234,12 +326,12 @@ class Indexer:
         for i in range(0, len(windows), batch_size):
             print(i, len(windows))  # Progress tracking
             # Extract just the text from current batch of windows
-            batch_texts = [window_text for _, window_text in windows[i:i+batch_size]]
+            batch_texts = [window_text for _, window_text in windows[i:i + batch_size]]
             # Encode all texts in this batch at once
             vectors = encoder.encode_documents(batch_texts)
-            
+
             # Merge each vector back to its corresponding document using max-pooling
-            for (doc_id, _), vector in zip(windows[i:i+batch_size], vectors):
+            for (doc_id, _), vector in zip(windows[i:i + batch_size], vectors):
                 for idx, val in zip(vector["indices"], vector["values"]):
                     # Max-pooling: take maximum value across windows for each index
                     merged[doc_id][idx] = max(val, merged[doc_id].get(idx, 0.0))
@@ -255,28 +347,30 @@ class Indexer:
                 indices, values = zip(*sorted(merged_dict.items()))
                 output_vectors.append({"indices": list(indices), "values": list(values)})
         return output_vectors
-    
+
     def encode_sparse_query(self, query: str, sparse_bm25: bool = True) -> SparseVector:
         """Encode a search query into a sparse vector for retrieval.
-        
+
         Args:
             query: Search query text to encode
             sparse_bm25: If True, use BM25 encoder; if False, use SPLADE encoder (default: True)
-            
+
         Returns:
             SparseVector object containing encoded query representation
-            
+
         Note:
             For BM25: loads pre-fitted parameters from backend/BM25_params/{namespace}.json
             For SPLADE: uses default encoder without pre-fitting requirements
         """
-        # TODO: Implement encode_sparse_query. The pinecone_text package provides a encode_queries 
-        # function for both the SPLADE and BM25 encoders:
-        # - If sparse_bm25 is true, we encode the query with BM25, and SPLADE otherwise
-        # - For BM25, we need to load the parameters we learned during the encoding for the training corpus
+        if sparse_bm25:
+            encoder = BM25Encoder()
+            params_file = Path(__file__).parent.parent.parent / "BM25_params" / f"{self.namespace}.json"
+            encoder.load(params_file)
+        else:
+            encoder = SpladeEncoder()
 
-        raise NotImplemented
-    
+        return encoder.encode_queries(query)
+
     def _is_index_empty(self) -> bool:
         """Check if the index namespace is empty.
         
@@ -304,22 +398,22 @@ class Indexer:
         norms = np.linalg.norm(vectors, axis=1, keepdims=True) 
         vectors = vectors / np.maximum(norms, eps)         
         return vectors.tolist()
-    
+
     async def index_data(
-            self, 
-            code_elements: list[CodeElement], 
+            self,
+            code_elements: list[CodeElement],
             sparse_bm25: bool = True,
             batch_size: int = 100,
             alpha: float = 0.8
-        ) -> None:
+    ) -> None:
         """Index code elements into Pinecone with hybrid dense+sparse vectors.
-        
+
         Args:
             code_elements: List of CodeElement objects to index
             sparse_bm25: If True, use BM25 for sparse vectors; otherwise use SPLADE (default: True)
             batch_size: Number of vectors to upsert per batch (default: 100)
             alpha: Weight for dense embeddings in hybrid search (default: 0.8)
-            
+
         Note:
             Skips indexing if namespace already contains data.
             Filters out elements without text or descriptions.
@@ -327,109 +421,146 @@ class Indexer:
             Filters out oversized metadata (>35KB) to avoid Pinecone limits.
         """
 
-        # TODO: Implement index_data
-        # TODO: Avoid repopulating the index if the namespace is not empty. I am giving you _is_index_empty for simplicity.
+        if not self._is_index_empty():
+            return
 
-        # TODO: Use the summarize_all function to summarize all the text. 
-        # Make sure to filter elements for which the text element is empty.
-        code_elements = None
-        # TODO: Use the embed_all function to create a dense vector representation for every code element. 
-        # Make sure to filter elements for which the description element is empty.
-        dense_embeddings = None
-        # TODO: Use the _l2_normalize function to normalize all the vectors.
-        dense_embeddings = None
+        code_elements = [el for el in code_elements if el.text]
+        code_elements = await self.summarize_all(code_elements)
+        code_elements = [el for el in code_elements if el.description]
+        dense_embeddings = await self.embed_all(code_elements)
+        dense_embeddings = self._l2_normalize(dense_embeddings)
 
-        # TODO: Use the bm25_encode or splade_encode to create the sparse embeddings.
         if sparse_bm25:
-            sparse_embeddings = None
+            sparse_embeddings = self.bm25_encode(code_elements)
         else:
-            sparse_embeddings = None
+            sparse_embeddings = self.splade_encode(code_elements)
 
         for i in range(0, len(code_elements), batch_size):
-            
-            # TODO: Get the batch of data, dense embeddings, and sparse embeddings.
-            batch = None
-            batch_dense_embeddings = None
-            batch_sparse_embeddings = None
 
-            sparse_indices = None
-            sparse_values = None
-            # TODO: Compute the metadata
-            metadata = None
-            # TODO: Create unique IDs
-            vector_ids = None
+            batch = code_elements[i:i + batch_size]
+            batch_dense_embeddings = dense_embeddings[i:i + batch_size]
+            batch_sparse_embeddings = sparse_embeddings[i:i + batch_size]
 
-            # TODO: Weigh the dense vectors VS sparse vectors
-            # batch_dense_embeddings[j] = np.array(batch_dense_embeddings[j]) * alpha).tolist()
-            # sparse_values[j] = (np.array(sparse_values[j]) * (1 - alpha)).tolist()
+            sparse_indices = [emb['indices'] for emb in batch_sparse_embeddings]
+            sparse_values = [emb['values'] for emb in batch_sparse_embeddings]
+            metadata = [el.model_dump(exclude_none=True) for el in batch]
+            vector_ids = [str(uuid.uuid4()) for _ in batch]
+
             data = [{
                 'id': vector_ids[j],
-                'values': batch_dense_embeddings[j],
-                'sparse_values': {'indices': sparse_indices[j], 'values': sparse_values[j]},
+                'values': (np.array(batch_dense_embeddings[j]) * alpha).tolist(),
+                'sparse_values': {
+                    'indices': sparse_indices[j],
+                    'values': (np.array(sparse_values[j]) * (1 - alpha)).tolist()
+                },
                 'metadata': metadata[j]
-            # Pinecone can only upsert metadata with max 40kB of data so I added this filter
-            # to account for the weaknesses of our current parsing pipeline
             } for j in range(len(batch)) if len(str(metadata[j])) < 35000]
 
-            try: 
+            try:
                 res = self.index.upsert(vectors=data, namespace=self.namespace)
             except Exception as e:
                 logger.error(f"Problem with indexing: {str(e)}")
 
     async def get_search_filter(self, query: str) -> str:
+        messages = [
+            {'role': 'system', 'content': FILTER_SYSTEM_PROMPT},
+            {'role': 'user', 'content': f"Query: {query}"}
+        ]
 
-        # TODO: Get the messages
-        messages = []
-
-        try: 
-            # TODO: Pass the DocumentType to the text_format argument.
-            response = await async_openai_client.responses.parse(...)
+        try:
+            response = await async_openai_client.responses.parse(
+                model='gpt-4.1-nano',
+                input=messages,
+                temperature=0.1,
+                timeout=30.0,
+                text_format=DocumentType
+            )
             return response.output_parsed.type
         except Exception as e:
-            logger.error(e)
+            print(e)
 
     async def search(
-            self, 
-            query: str, 
-            max_results: int = 15, 
-            with_filters: bool = True, 
+            self,
+            query: str,
+            max_results: int = 15,
+            with_filters: bool = True,
             with_rerank: bool = True,
             sparse_bm25: bool = True,
-        ) -> list[CodeElement]:
+    ) -> list[CodeElement]:
         """Search for relevant code elements using hybrid dense+sparse retrieval.
-        
+
         Args:
             query: Search query text
             max_results: Maximum number of results to return (default: 15)
             with_filters: If True, uses AI to filter by file type (.py/.md) (default: True)
             with_rerank: If True, uses Cohere rerank-3.5 for result reordering (default: True)
             sparse_bm25: If True, uses BM25 for sparse; if False, uses SPLADE (default: True)
-            
+
         Returns:
             List of CodeElement objects ranked by relevance
-            
+
         Note:
             Combines dense embeddings (OpenAI) with sparse vectors (BM25/SPLADE) for hybrid search.
             AI filter selects appropriate file types based on query intent.
             Reranking improves result quality using description field for semantic matching.
         """
 
-        # TODO: In the search function we are going to implement filters if with_filters is true:
-        # - Use the get_search_filter to determine what kind of filters we need. 
-        # Based on the result of the function, we will have ".py", ".md", or both.
-        # - In this specific case, the filters are on the "extension" key.
-        # `filters = {"extension": {"$in": extensions}}``
-        # - If with_filters is not true, the default value is an empty dictionary {}.
-        filters = None
+        if with_filters:
+            document_type = await self.get_search_filter(query)
+            extensions = ['.py', '.md']
+            if document_type == 'code':
+                extensions = ['.py']
+            elif document_type == 'doc':
+                extensions = ['.md']
+            filters = {"extension": {"$in": extensions}}
+        else:
+            filters = {}
 
-        # TODO: If with_rerank is true, populate the rerank dictionary, otherwise set it as None.
-        rerank = None
+        if with_rerank:
+            rerank = {
+                "model": "cohere-rerank-3.5",
+                "query": query,
+                "top_n": max_results,
+                "rank_fields": ["description"]
+            }
+        else:
+            rerank = None
 
-        # TODO: Generate the dense and sparse embeddings from the text query and implement this query_dict dictionary. 
-        query_dict = {}
+        response = await async_openai_client.embeddings.create(
+            input=query,
+            model="text-embedding-3-small"
+        )
+
+        dense_embedding = response.data[0].embedding
+        sparse_embedding = self.encode_sparse_query(query, sparse_bm25)
+
+        sparse_indices = []
+        sparse_values = []
+        if sparse_embedding:
+            if isinstance(sparse_embedding, dict):
+                sparse_indices = sparse_embedding.get('indices', [])
+                sparse_values = sparse_embedding.get('values', [])
+            else:
+                sparse_indices = getattr(sparse_embedding, 'indices', [])
+                sparse_values = getattr(sparse_embedding, 'values', [])
+
+        use_sparse = bool(sparse_indices)
+
+        vector_payload = {"values": dense_embedding}
+        if use_sparse:
+            vector_payload.update({
+                "sparse_values": sparse_values,
+                "sparse_indices": sparse_indices,
+            })
+
+        query_dict = {
+            "vector": vector_payload,
+            "top_k": max_results * 3 if with_rerank else max_results,
+            "filter": filters,
+        }
 
         result = self.index.search(
-            namespace=self.namespace, 
+            namespace=self.namespace,
             query=query_dict,
             rerank=rerank,
         )

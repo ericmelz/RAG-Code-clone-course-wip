@@ -2,18 +2,16 @@ import os
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from pinecone import Pinecone
+from langsmith import wrappers
 
 # The load_dotenv function is going to load the .env file and capture as environment variables the constants defined within it.
 load_dotenv()
 
-# TODO: 
-# - Make sure to install the python-dotenv package.
-# - Instantiate the AsyncOpenAI module with your API key.
-async_openai_client = None
+load_dotenv()
 
-# TODO: Wrap your current OpenAI client to add observability by using the 
-# wrap_openai function.
-async_openai_client_obs = None
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+PINECONE_API_KEY = os.environ.get('PINECONE_API_KEY')
 
-# TODO: Instantiate the Pinecone module with your API key.
-pinecone_client = None
+async_openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+async_openai_client_obs = wrappers.wrap_openai(async_openai_client)
+pinecone_client = Pinecone(api_key=PINECONE_API_KEY)

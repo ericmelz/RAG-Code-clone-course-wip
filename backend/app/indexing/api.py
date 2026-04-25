@@ -31,11 +31,10 @@ def index_repo(request: IndexingRequest) -> dict:
 
 
 @router.get("/repos", response_model=RepoListResponse)
-async def list_indexed_repos(db: AsyncSession = Depends(get_db)) -> RepoListResponse:
+async def list_indexed_repos(db: AsyncSession = Depends(get_db)):
     """List all indexed LinkedIn profiles"""
-    # TODO: In list_indexed_repos, use the get_indexed_repos function
-    # to get all the indexed repos and return an instance of RepoListResponse.
-    raise NotImplemented
+    repos = await get_indexed_repos(db)
+    return RepoListResponse(repos=repos)
 
 
 

@@ -3,9 +3,12 @@ from app.indexing.models import IndexedRepo  # your SQLAlchemy model
 
 class IndexedRepoAdmin(ModelView, model=IndexedRepo):
     # columns to show in list/detail forms
-    # TODO: Add the columns you want to be able to visualize in the Admin UI.
     column_list = [
         IndexedRepo.id,
+        IndexedRepo.github_url,
+        IndexedRepo.namespace,
+        IndexedRepo.indexed_at,
+        IndexedRepo.updated_at,
     ]
     # optional niceties
     column_searchable_list = [IndexedRepo.github_url]

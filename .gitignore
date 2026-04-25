@@ -252,6 +252,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# LangGraph dev server state
+.langgraph_api/
+
 # Database files
 *.db
 *.sqlite
@@ -260,6 +263,7 @@ pnpm-debug.log*
 # AI/ML model files
 *.pkl
 *.pickle
+*.pckl
 *.h5
 *.hdf5
 *.pt

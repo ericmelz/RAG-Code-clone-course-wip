@@ -12,11 +12,15 @@ class Nodes:
     SELECTOR = 'selector'
     ASSESSOR = 'assessor'
 
-# TODO: Instantiate the StateGraph with the RetrieverAgentState
-builder = None
-# TODO: Add the retriever, selector, and assessor nodes to the graph
-# TODO: Add an edge from START to the retriever, from the retriever 
-# to the selector, and from the selector to the assessor
+builder = StateGraph(RetrieverAgentState)
+
+builder.add_node(Nodes.RETRIEVER, retriever)
+builder.add_node(Nodes.SELECTOR, selector)
+builder.add_node(Nodes.ASSESSOR, assessor)
+
+builder.add_edge(START, Nodes.RETRIEVER)
+builder.add_edge(Nodes.RETRIEVER, Nodes.SELECTOR)
+builder.add_edge(Nodes.SELECTOR, Nodes.ASSESSOR)
 
 def need_more_context(state: RetrieverAgentState) -> str:
     if state.needs_rag and state.num_iteration <= 3:

@@ -7,8 +7,10 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-# TODO: Implement the system prompt.
-SYSTEM_PROMPT = None
+SYSTEM_PROMPT = """
+You are a helpful assistant. Provide a answer to the user.
+"""
+
 
 class SimpleAssistant:
     """
@@ -22,16 +24,32 @@ class SimpleAssistant:
     async def generate(self, state: ChatAgentState) -> str:
         """
         Generate a simple response using conversation context only.
-        
+
         Args:
             state (ChatAgentState): Current conversation state
-            
+
         Returns:
             str: Generated response text
         """
-        # TODO: Use the chat history in async_openai_client_obs.responses.create 
-        # to generate an answer.
-        raise NotImplemented
+
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": f"###  Chat_history  ###"},
+        ]
+
+        messages.extend(state.chat_messages[-10:])
+
+        try:
+            response = await async_openai_client_obs.responses.create(
+                model='gpt-4.1-nano',
+                input=messages,
+                temperature=0.1,
+            )
+        except Exception as e:
+            logger.error(str(e))
+            raise ConnectionError(f"Something wrong with Openai: {str(e)}")
+
+        return response.output_text
 
     async def __call__(self, state: ChatAgentState) -> ChatAgentState:
         """
@@ -43,8 +61,9 @@ class SimpleAssistant:
         Returns:
             ChatAgentState: Updated state with generated response
         """
-        # TODO:  In __call__, use the generate function to modify 
-        # the generation attribute of the state.
+        generation = await self.generate(state)
+        state.generation = generation
+
         return state
     
 

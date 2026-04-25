@@ -7,37 +7,42 @@ from app.chat.crud import get_chat_history, save_user_message, save_assistant_me
 from app.core.db import get_db
 import logging
 
+from app.indexing.crud import get_indexed_repo_by_url
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
 
 @router.post("/message", response_model=ChatResponse)
-async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatResponse:
-    # TODO implement the chat function:
-    # 1. When we receive the request, we need to save the message
-    # 2. We then retrieve the chat history
-    # 3. We then create the initial state for ChatAgentState.
-    # 4. We then invoke the chat_agent.ainvoke(...).
-    # 5. We then cast the final state into a ChatAgentState object.
-    # 6. We then save the generated message
-    # 7. And finally, we return the response.
-
+async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
     try:
         # Save user message first
-    
+        await save_user_message(db, request.username, request.message)
+
         # Retrieve chat history from database
-        
-        # Initialize state
-        
+        chat_messages = await get_chat_history(db, request.username)
+        # Initialize state with the indexed namespace linked to this URL
+        repo = await get_indexed_repo_by_url(db, request.github_url)
+
+        namespace = repo.namespace
+        initial_state = ChatAgentState(
+            chat_messages=chat_messages,
+            namespace=namespace
+        )
+
         # Run the agent
-        
+        result = await chat_agent.ainvoke(initial_state, debug=True)
+
         # Cast result to ChatAgentState
-        
+        final_state = ChatAgentState(**result)
+
         # Save assistant response to database
-        
-        raise NotImplemented
-        
+        response_text = final_state.generation or "I'm sorry, I couldn't generate a response."
+        await save_assistant_message(db, request.username, response_text)
+
+        return ChatResponse(response=response_text)
+
     except Exception as e:
         logger.error(f"Chat agent error: {e}")
         raise HTTPException(status_code=500, detail=str(e))

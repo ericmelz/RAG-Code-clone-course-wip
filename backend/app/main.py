@@ -36,4 +36,4 @@ app.add_middleware(
 )
 
 app.include_router(indexing_router, prefix="/indexing")
-# TODO: Make sure to expose the chat sub-router
+app.include_router(chat_router, prefix="/chat")

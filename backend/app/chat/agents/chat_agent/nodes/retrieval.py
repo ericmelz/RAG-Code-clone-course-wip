@@ -8,19 +8,23 @@ class Retriever:
 
     async def subagent(self, state: ChatAgentState) -> ChatAgentState:
         """Execute retrieval subagent to find relevant documents.
-        
+
         Args:
             state: ChatAgentState containing namespace, query_vector_db, and chat_messages
-            
+
         Returns:
             Updated ChatAgentState with retrieved_documents populated from subagent
         """
-        # TODO: In subagent,
-        # - Initialize an initial RetrieverAgentState state from the current ChatAgentState.
-        # - Call the ainvoke function on retrieval_agent.
-        # - Cast the response from the ainvoke function as a RetrieverAgentState object.
-        # - Update the retrieved_documents attribute of the ChatAgentState by using the 
-        # retrieved_documents attribute of the final RetrieverAgentState.
-        return state    
-    
+        initial_retriever_state = RetrieverAgentState(
+            namespace=state.namespace,
+            queries=[state.query_vector_db],
+            chat_messages=state.chat_messages
+        )
+        response = await retrieval_agent.ainvoke(
+            initial_retriever_state.model_dump()
+        )
+        final_retriever_state = RetrieverAgentState(**response)
+        state.retrieved_documents = final_retriever_state.retrieved_documents
+        return state
+
 retriever = Retriever()

@@ -11,18 +11,32 @@ class Nodes:
     EVALUATOR = 'evaluator'
 
 
-# TODO: Instantiate StateGraph with GenerationAgentState.
-builder = None
-# TODO: Add the generator and evaluator nodes to the graph.
-# TODO: Add an edge from START to the generator and from the generator to the evaluator.
+builder = StateGraph(GenerationAgentState)
+
+builder.add_node(Nodes.GENERATOR, generator)
+builder.add_node(Nodes.EVALUATOR, evaluator)
+
+builder.add_edge(START, Nodes.GENERATOR)
+builder.add_edge(Nodes.GENERATOR, Nodes.EVALUATOR)
  
-def generation_evaluation_router(state: GenerationAgentState) -> str:
-    # TODO: Implement generation_evaluation_router for a conditional edge. If is_grounded and 
-    # is_valid, end the pipeline, otherwise if num_iterations <= 3, retry the generation.
+def generation_evaluation_router(state: GenerationAgentState):
     """Route based on response quality evaluation results."""
-    raise NotImplemented
+    if state.is_grounded and state.is_valid:
+        return END
+    elif state.num_iterations <= 3:
+        return Nodes.GENERATOR
+    else:
+        return END
 
 
-# TODO: Add a conditional edge from the evaluator with generation_evaluation_router.
+builder.add_conditional_edges(
+    Nodes.EVALUATOR,
+    generation_evaluation_router,
+    {
+        Nodes.GENERATOR: Nodes.GENERATOR,
+        END: END
+    }
+)
+
 
 generator_agent = builder.compile()

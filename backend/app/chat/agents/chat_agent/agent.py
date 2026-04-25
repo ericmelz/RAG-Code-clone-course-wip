@@ -19,47 +19,79 @@ class Nodes:
     FALLBACK = "fallback"
 
 
-def answer_type_router(state: ChatAgentState) -> str:
+def answer_type_router(state: ChatAgentState):
     """Route to RAG pipeline or simple assistant based on intent analysis."""
-    # TODO: Implement answer_type_router. If need_rag is true and query_vector_db exists, 
-    # then we need to go to the retriever; otherwise, we move to the simple assistant.
-    raise NotImplemented
+    if state.need_rag and state.query_vector_db:
+        return Nodes.RETRIEVER
+    else:
+        return Nodes.SIMPLE_ASSISTANT
 
-def empty_document_router(state: ChatAgentState) -> str:
+def empty_document_router(state: ChatAgentState):
     """Handle cases where retrieval returns no relevant documents."""
-    # TODO: Implement empty_document_router. If retrieved_documents is empty, 
-    # we move to the fallback node; otherwise, we move to the generator.
-    raise NotImplemented
+    if state.retrieved_documents:
+        return Nodes.GENERATOR
+    else:
+        return Nodes.FALLBACK
 
-def generation_evaluation_router(state: ChatAgentState) -> str:
+def generation_evaluation_router(state: ChatAgentState):
     """Route based on response quality evaluation results."""
-    # TODO: Implement generation_evaluation_router. If generation is None, 
-    # we move to the fallback node; otherwise, we end the pipeline.
-    raise NotImplemented
+    if state.generation:
+        return END
+    else:
+        return Nodes.FALLBACK
 
 
 # Build the agent graph with nodes and routing logic
-# TODO: Instantiate StateGraph with ChatAgentState.
-builder = None
+builder = StateGraph(ChatAgentState)
 
 # Add all processing nodes
-# TODO: Add the intent router, the retriever, the generator,
-#  and the fallback nodes to the graph.
+builder.add_node(Nodes.INTENT_ROUTER, intent_router)
+builder.add_node(Nodes.RETRIEVER, retriever.subagent)
+builder.add_node(Nodes.GENERATOR, generator.subagent)
+builder.add_node(Nodes.SIMPLE_ASSISTANT, simple_assistant)
+builder.add_node(Nodes.FALLBACK, fallback)
 
 # Define the conversation flow
-# TODO: Add an edge from START to the intent router.
+builder.add_edge(START, Nodes.INTENT_ROUTER)
 
 # Route based on whether RAG is needed
-# TODO: Add a conditional edge from the intent router using answer_type_router.
+builder.add_conditional_edges(
+    Nodes.INTENT_ROUTER,
+    answer_type_router,
+    {
+        Nodes.RETRIEVER: Nodes.RETRIEVER,
+        Nodes.SIMPLE_ASSISTANT: Nodes.SIMPLE_ASSISTANT
+    }
+)
+
 
 # Handle retrieval outcomes
-# TODO: Add a conditional edge from the retriever using empty_document_router. 
+builder.add_conditional_edges(
+    Nodes.RETRIEVER,
+    empty_document_router,
+    {
+        Nodes.GENERATOR: Nodes.GENERATOR,
+        Nodes.FALLBACK: Nodes.FALLBACK
+    }
+)
+
 
 # Handle generation quality evaluation
-# TODO: Add a conditional edge from the generator using generation_evaluation_router.
+builder.add_conditional_edges(
+    Nodes.GENERATOR,
+    generation_evaluation_router,
+    {
+        END: END,
+        Nodes.FALLBACK: Nodes.FALLBACK
+    }
+)
+
 
 # Terminal nodes
-# TODO: End the pipeline after the fallback node and the simple assistant.
+builder.add_edge(Nodes.SIMPLE_ASSISTANT, END)
+builder.add_edge(Nodes.GENERATOR, END)
+builder.add_edge(Nodes.FALLBACK, END)
+
 
 # Compile the agent for execution
 chat_agent = builder.compile()

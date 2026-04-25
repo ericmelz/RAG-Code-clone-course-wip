@@ -7,8 +7,26 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-# TODO: Implement the system prompt to apologize if and provide a helpful next step.
-SYSTEM_PROMPT = None
+SYSTEM_PROMPT = """
+You are a fallback assistant.
+
+Situation  
+• The pipeline could not find sufficient information in the retrieved
+  documents to answer the user's latest question.
+
+Your job  
+1. Send a short, polite apology.  
+2. Briefly explain that the necessary information was not present in the
+   available context.  
+3. Offer one helpful next step (e.g. rephrase the question, provide more
+   details, or try a different topic).
+
+Guidelines  
+• Keep the tone friendly and professional.  
+• Do **not** invent an answer or cite any sources.  
+• Limit the entire reply to ≤ 3 short sentences.  
+"""
+
     
 
 class FallBack:
@@ -24,32 +42,59 @@ class FallBack:
     async def fallback_answer(self, state: ChatAgentState) -> str:
         """
         Generate a polite fallback response when the main pipeline fails.
-        
+
         Args:
             state (ChatAgentState): Current conversation state
-            
-        Returns:
-            Fallback reply: apology with optional guidance
-        """
-        # TODO: Implement fallback_answer.  Use the system prompt and the chat history 
-        # to generate a helpful answer. You could use the state of the retrieved 
-        # documents and the generation to drill down further on a reason
-        raise NotImplemented
 
-    
+        Returns:
+            ApologyReply: Structured apology with optional guidance
+        """
+
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": f"###  Chat_history  ###"},
+        ]
+
+        messages.extend(state.chat_messages[-10:])
+
+        reason = None
+        if not state.retrieved_documents:
+            reason = "No relevant documents found in the knowledge base."
+        elif not state.generation:
+            reason = "Generation quality is too poor after multiple iterations."
+
+        messages.append({
+            'role': 'system',
+            'content': f"###  Reason  ###\n{reason}"
+        })
+
+        try:
+            response = await async_openai_client.responses.create(
+                model='gpt-4.1-mini',
+                input=messages,
+                temperature=0.1,
+            )
+        except Exception as e:
+            logger.error(str(e))
+            raise ConnectionError("Something wrong with Openai: {e}")
+
+        return response.output_text
+
     async def __call__(self, state: ChatAgentState) -> ChatAgentState:
         """
         Execute the fallback response generation step.
-        
+
         Args:
             state (ChatAgentState): Current conversation state
-            
+
         Returns:
             ChatAgentState: Updated state with fallback response
         """
-        # TODO: In __call__, use the result from fallback_answer 
-        # to update the generation state attribute.
+        reply = await self.fallback_answer(state)
+        # TODO (erm) this was in the solution - looks buggy
+        # state.generation = reply.apology + ("\n" + reply.suggestion if reply.suggestion else "")
+        state.generation = reply
         return state
-    
+
 
 fallback = FallBack()

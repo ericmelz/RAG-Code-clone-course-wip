@@ -7,7 +7,6 @@ from pathlib import Path
 
 import numpy as np
 from pinecone import ServerlessSpec
-from pinecone_text.sparse import BM25Encoder, SparseVector
 
 from app.core.clients import async_openai_client, pinecone_client
 from app.indexing.documents import Document
@@ -93,7 +92,8 @@ class BaseIndexer(ABC):
     # Sparse encoding
     # ------------------------------------------------------------------
 
-    def bm25_encode(self, documents: list[Document]) -> list[SparseVector]:
+    def bm25_encode(self, documents: list[Document]) -> list[dict]:
+        from pinecone_text.sparse.bm25_encoder import BM25Encoder  # lazy: pinecone_text loads torch on import
         bm25 = BM25Encoder()
         corpus = [doc.text for doc in documents]
         bm25.fit(corpus)
@@ -108,8 +108,8 @@ class BaseIndexer(ABC):
         max_characters: int = 1000,
         stride: int = 500,
         batch_size: int = 32,
-    ) -> list[SparseVector]:
-        from pinecone_text.sparse import SpladeEncoder  # lazy: avoids 197 MB PyTorch load at startup
+    ) -> list[dict]:
+        from pinecone_text.sparse.splade_encoder import SpladeEncoder  # lazy: loads torch
         encoder = SpladeEncoder()
 
         def _windows(text: str) -> list[str]:
@@ -137,7 +137,7 @@ class BaseIndexer(ABC):
                 for idx, val in zip(vec["indices"], vec["values"]):
                     merged[doc_id][idx] = max(val, merged[doc_id].get(idx, 0.0))
 
-        output: list[SparseVector] = []
+        output: list[dict] = []
         for m in merged:
             if not m:
                 output.append({"indices": [], "values": []})
@@ -146,11 +146,13 @@ class BaseIndexer(ABC):
                 output.append({"indices": list(indices), "values": list(values)})
         return output
 
-    def encode_sparse_query(self, query: str, sparse_bm25: bool = True) -> SparseVector:
+    def encode_sparse_query(self, query: str, sparse_bm25: bool = True) -> dict:
         if sparse_bm25:
+            from pinecone_text.sparse.bm25_encoder import BM25Encoder  # lazy: pinecone_text loads torch on import
             encoder = BM25Encoder()
             encoder.load(Path(__file__).parent.parent.parent.parent / "BM25_params" / f"{self.namespace}.json")
         else:
+            from pinecone_text.sparse.splade_encoder import SpladeEncoder  # lazy: loads torch
             encoder = SpladeEncoder()
         return encoder.encode_queries(query)
 

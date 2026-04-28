@@ -40,3 +40,23 @@ Content-Type: application/json
   "message": "What does this codebase do?",
   "namespace": "huggingface-transformers"
 }
+
+### Chat - financial question 1 - no contradiction
+POST http://localhost:8000/chat/message
+Content-Type: application/json
+
+{
+  "username": "user1",
+  "message": "What was the Total Revenue for WackWidget1000 in FY 2025?",
+  "namespace": "users-ericmelz-data-code-rag-code-clone-course-wip-backend-data-sample-financial-data"
+}
+
+### Chat - financial question 1 - spreadsheet contradicts pdf
+POST http://localhost:8000/chat/message
+Content-Type: application/json
+
+{
+  "username": "user1",
+  "message": "What was the Total Revenue for WackWidget3000 in FY 2025?",
+  "namespace": "users-ericmelz-data-code-rag-code-clone-course-wip-backend-data-sample-financial-data"
+}

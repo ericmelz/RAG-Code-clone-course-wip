@@ -1,0 +1,32 @@
+### Index a GitHub repository
+POST http://localhost:8000/indexing/index
+Content-Type: application/json
+
+{
+  "github_url": "https://github.com/huggingface/transformers"
+}
+
+### Index financial documents
+POST http://localhost:8000/indexing/index/financial
+Content-Type: application/json
+
+{
+  "local_path": "/path/to/financial/docs",
+  "description": "Q3 2024 financial reports"
+}
+
+### List all indexed GitHub repos
+GET http://localhost:8000/indexing/repos
+
+### List all indexed sources (GitHub + financial)
+GET http://localhost:8000/indexing/sources
+
+### Chat with an indexed source
+POST http://localhost:8000/chat/message
+Content-Type: application/json
+
+{
+  "username": "user1",
+  "message": "What does this codebase do?",
+  "namespace": "huggingface-transformers"
+}

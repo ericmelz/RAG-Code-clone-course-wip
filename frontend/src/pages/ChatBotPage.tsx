@@ -1,7 +1,7 @@
 // ChatBotPage.tsx
 import ChatBot, { type Params } from "react-chatbotify";
-import { Box, FormControl, InputLabel, Select, Typography, MenuItem } from '@mui/material';
-import { useState, useEffect } from 'react';
+import { Box, FormControl, InputLabel, Select, SelectChangeEvent, Typography, MenuItem, useMediaQuery } from '@mui/material';
+import { useState, useEffect, useMemo } from 'react';
 import IndexingAPI from 'api/indexing';
 import ChatAPI from 'api/chat';
 
@@ -30,6 +30,7 @@ interface IndexedRepo {
 export default function ChatBotPage() {
     const [repos, setRepos] = useState<IndexedRepo[]>([]);
     const [selectedNamespace, setSelectedNamespace] = useState('');
+    const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
 
 
     useEffect(() => {
@@ -56,6 +57,16 @@ export default function ChatBotPage() {
             embedded: true, showFooter: false, showHeader: false
         },
     }
+
+    const darkStyles = useMemo(() => prefersDarkMode ? {
+        chatWindowStyle: { width: 800, backgroundColor: '#1e1e1e' },
+        bodyStyle: { backgroundColor: '#1e1e1e' },
+        chatInputContainerStyle: { backgroundColor: '#2d2d2d', borderTop: '1px solid rgba(255,255,255,0.12)' },
+        chatInputAreaStyle: { backgroundColor: '#2d2d2d', color: 'rgba(255,255,255,0.87)' },
+        chatHistoryButtonStyle: { backgroundColor: '#2d2d2d', color: 'rgba(255,255,255,0.87)', border: '1px solid rgba(255,255,255,0.2)' },
+        botBubbleStyle: { backgroundColor: '#3d3d3d', color: 'rgba(255,255,255,0.87)' },
+        userBubbleStyle: { backgroundColor: '#1565c0', color: '#fff' },
+    } : { chatWindowStyle: { width: 800 } }, [prefersDarkMode])
 
     /**
      * Handle user input from the chatbot and send it to the backend API.
@@ -142,7 +153,7 @@ export default function ChatBotPage() {
             <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                 <ChatBot
                     settings={settings}
-                    styles={{ chatWindowStyle: { width: 800 } }}
+                    styles={darkStyles}
                     flow={flow}
                 />
             </Box>

@@ -21,7 +21,17 @@ GET http://localhost:8000/indexing/repos
 ### List all indexed sources (GitHub + financial)
 GET http://localhost:8000/indexing/sources
 
-### Chat with an indexed source
+### Chat - simple greeting (GitHub namespace)
+POST http://localhost:8000/chat/message
+Content-Type: application/json
+
+{
+  "username": "user1",
+  "message": "How are you?",
+  "namespace": "huggingface-transformers"
+}
+
+### Chat - codebase question (GitHub namespace)
 POST http://localhost:8000/chat/message
 Content-Type: application/json
 

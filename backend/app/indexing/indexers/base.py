@@ -246,8 +246,12 @@ class BaseIndexer(ABC):
         ).data[0].embedding
 
         sparse_embedding = self.encode_sparse_query(query, sparse_bm25)
-        sparse_indices = getattr(sparse_embedding, "indices", sparse_embedding.get("indices", []))
-        sparse_values = getattr(sparse_embedding, "values", sparse_embedding.get("values", []))
+        if isinstance(sparse_embedding, dict):
+            sparse_indices = sparse_embedding.get("indices", [])
+            sparse_values = sparse_embedding.get("values", [])
+        else:
+            sparse_indices = getattr(sparse_embedding, "indices", [])
+            sparse_values = getattr(sparse_embedding, "values", [])
 
         vector_payload: dict = {"values": dense_embedding}
         if sparse_indices:

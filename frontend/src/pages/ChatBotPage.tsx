@@ -1,6 +1,7 @@
 // ChatBotPage.tsx
 import ChatBot, { type Params } from "react-chatbotify";
-import { Box, FormControl, InputLabel, Select, SelectChangeEvent, Typography, MenuItem, useMediaQuery } from '@mui/material';
+import { Box, FormControl, InputLabel, Select, Typography, MenuItem, useMediaQuery } from '@mui/material';
+import type { SelectChangeEvent } from '@mui/material/Select';
 import { useState, useEffect, useMemo } from 'react';
 import IndexingAPI from 'api/indexing';
 import ChatAPI from 'api/chat';

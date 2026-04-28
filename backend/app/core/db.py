@@ -1,6 +1,9 @@
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from alembic.config import Config
+from alembic import command
+import asyncio
 
 SQLALCHEMY_DATABASE_URL = "sqlite+aiosqlite:///./sandbox.db"
 
@@ -11,9 +14,16 @@ AsyncSessionLocal = sessionmaker(
 
 Base = declarative_base()
 
-async def create_tables():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+
+def run_migrations():
+    alembic_cfg = Config("alembic.ini")
+    command.upgrade(alembic_cfg, "head")
+
+
+async def run_migrations_async():
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_migrations)
+
 
 async def get_db():
     async with AsyncSessionLocal() as session:

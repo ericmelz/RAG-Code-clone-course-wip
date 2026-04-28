@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.indexing.api import router as indexing_router
 from app.chat.api import router as chat_router 
-from app.core.db import create_tables, engine
+from app.core.db import run_migrations_async, engine
 from app.indexing.admin import IndexedRepoAdmin
 from app.chat.admin import UserAdmin, MessageAdmin
 from sqladmin import Admin
@@ -16,7 +16,7 @@ async def lifespan(app: FastAPI):
     admin.add_view(IndexedRepoAdmin)
     admin.add_view(UserAdmin)
     admin.add_view(MessageAdmin)
-    await create_tables()
+    await run_migrations_async()
     yield
 
 

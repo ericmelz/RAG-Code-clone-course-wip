@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.indexing.api import router as indexing_router
 from app.chat.api import router as chat_router 
 from app.core.db import run_migrations_async, engine
-from app.indexing.admin import IndexedRepoAdmin
+from app.indexing.admin import IndexedRepoAdmin, IndexedFinancialCollectionAdmin
 from app.chat.admin import UserAdmin, MessageAdmin
 from sqladmin import Admin
 
@@ -14,6 +14,7 @@ async def lifespan(app: FastAPI):
     # Startup
     admin = Admin(app, engine, title="Admin")
     admin.add_view(IndexedRepoAdmin)
+    admin.add_view(IndexedFinancialCollectionAdmin)
     admin.add_view(UserAdmin)
     admin.add_view(MessageAdmin)
     await run_migrations_async()

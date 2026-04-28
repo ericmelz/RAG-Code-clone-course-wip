@@ -1,15 +1,27 @@
 from sqladmin import ModelView
-from app.indexing.models import IndexedRepo  # your SQLAlchemy model
+from app.indexing.models import IndexedGithubRepo, IndexedFinancialCollection
 
-class IndexedRepoAdmin(ModelView, model=IndexedRepo):
-    # columns to show in list/detail forms
+
+class IndexedRepoAdmin(ModelView, model=IndexedGithubRepo):
     column_list = [
-        IndexedRepo.id,
-        IndexedRepo.github_url,
-        IndexedRepo.namespace,
-        IndexedRepo.indexed_at,
-        IndexedRepo.updated_at,
+        IndexedGithubRepo.id,
+        IndexedGithubRepo.github_url,
+        IndexedGithubRepo.namespace,
+        IndexedGithubRepo.indexed_at,
+        IndexedGithubRepo.updated_at,
     ]
-    # optional niceties
-    column_searchable_list = [IndexedRepo.github_url]
-    column_sortable_list = [IndexedRepo.indexed_at]
+    column_searchable_list = [IndexedGithubRepo.github_url]
+    column_sortable_list = [IndexedGithubRepo.indexed_at]
+
+
+class IndexedFinancialCollectionAdmin(ModelView, model=IndexedFinancialCollection):
+    column_list = [
+        IndexedFinancialCollection.id,
+        IndexedFinancialCollection.local_path,
+        IndexedFinancialCollection.description,
+        IndexedFinancialCollection.namespace,
+        IndexedFinancialCollection.indexed_at,
+        IndexedFinancialCollection.updated_at,
+    ]
+    column_searchable_list = [IndexedFinancialCollection.local_path]
+    column_sortable_list = [IndexedFinancialCollection.indexed_at]

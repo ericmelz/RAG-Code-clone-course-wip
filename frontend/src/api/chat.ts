@@ -27,10 +27,16 @@ export default class ChatAPI {
      * @returns Promise resolving to the API response data
      * @throws Error if the API call fails
      */
-    static async sendMessages({  message, namespace, userName }: MessageProp) {
-        /* TODO: Create the data dictionary consistent with the way the attributes are 
-        named in backend/app/chat/schemas.py, and send the data with a post request to chat/message. */
-        const path = null
-        const data = null
+    static async sendMessages({ message, namespace, userName }: MessageProp) {
+        const path = new URL('chat/message', BASE_API).toString()
+        const data = { message, namespace, username: userName }
+
+        try {
+            const response = await axios.post(path, data)
+            return response.data
+        } catch (error) {
+            throw new Error(`API call failed: ${error instanceof Error ? error.message : String(error)}`
+            )
+        }
     }
 }

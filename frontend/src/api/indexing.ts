@@ -20,9 +20,7 @@ export default class IndexingAPI {
         const data = { github_url: githubUrl }
 
         try {
-            /* TODO: implement indexUrl. Use axios.post function to send the GitHub repo URL to the indexing/index endpoint.
-             await axios.post(path, data)*/
-            const response = null
+            const response = await axios.post(path, data)
             return response.data
         } catch (error) {
             throw new Error(`API call failed: ${error instanceof Error ? error.message : String(error)}`)
@@ -38,9 +36,7 @@ export default class IndexingAPI {
     static async getIndexedRepos() {
         const path = new URL('indexing/repos', BASE_API).toString()
         try {
-            /* Use the axios.get function to send a request to indexing/repos. 
-            await axios.get(path) */ 
-            const response = null
+            const response = await axios.get(path)
             return response.data
         } catch (error) {
             throw new Error(`API call failed: ${error instanceof Error ? error.message : String(error)}`

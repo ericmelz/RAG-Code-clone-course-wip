@@ -260,32 +260,50 @@ The chat agent's retrieval is namespace-scoped and currently agnostic to index t
 
 `ChatRequest.namespace` is already decoupled from `github_url`. No change needed to the request schema.
 
-### 7b. Index-type-aware generation prompts
+### 7b. Agent routing by index type
 
-The **generator** and **evaluator** agents use prompts written for code. Financial documents need different framing:
+When a chat request arrives, look up the `index_type` for the namespace from the DB and route to the appropriate agent graph:
 
-- **Option A (recommended for now)**: Look up the `index_type` for the namespace at the start of each chat request, store it in `ChatAgentState`, and pass it to the generation nodes to select the appropriate system prompt.
-- **Option B (future)**: Separate LangGraph agent graphs per index type, selected by a top-level router.
+- `index_type = GITHUB` → invoke `chat_agent` (existing multi-agent pipeline with intent router, retrieval agent, generation agent)
+- `index_type = FINANCIAL` → invoke `basic_rag` agent (simpler retriever → generator pipeline, no intent routing)
 
-For Phase 7 (immediate), implement Option A:
-
-```python
-# app/chat/agents/chat_agent/state.py
-class ChatAgentState(BaseModel):
-    ...
-    index_type: IndexType = IndexType.GITHUB  # new field
-```
-
-The generation node selects a prompt template based on `index_type`:
+**Implementation**: In `app/chat/api.py`, after looking up the namespace, branch on `index_type` to call either `chat_agent.ainvoke()` or `basic_chat_agent.ainvoke()`. Both accept a state with `namespace`, `chat_messages`, and return `generation`.
 
 ```python
-SYSTEM_PROMPTS = {
-    IndexType.GITHUB: "You are a code expert...",
-    IndexType.FINANCIAL: "You are a financial analyst...",
-}
+# app/chat/api.py
+from app.indexing.models import IndexType
+from app.chat.agents.basic_rag.agent import basic_chat_agent
+from app.chat.agents.basic_rag.state import BasicChatAgentState
+
+source = await get_indexed_repo_by_namespace(db, request.namespace)
+
+if source.index_type == IndexType.FINANCIAL:
+    initial_state = BasicChatAgentState(
+        namespace=source.namespace,
+        chat_messages=chat_messages,
+    )
+    result = await basic_chat_agent.ainvoke(initial_state)
+    final_state = BasicChatAgentState(**result)
+else:
+    initial_state = ChatAgentState(
+        namespace=source.namespace,
+        chat_messages=chat_messages,
+    )
+    result = await chat_agent.ainvoke(initial_state, debug=True)
+    final_state = ChatAgentState(**result)
+
+response_text = final_state.generation or "I'm sorry, I couldn't generate a response."
 ```
 
-**Files changed**: `app/chat/agents/chat_agent/state.py`, `app/chat/api.py` (lookup index_type from DB), generation/evaluation node prompts.
+**Files changed**: `app/chat/api.py`.
+
+---
+
+### Deferred alternatives
+
+- **Option A — prompt-swap within chat_agent**: Add `index_type` to `ChatAgentState`, look it up at request time, pass it through to the generation and evaluation nodes to select financial vs. code system prompts. Keeps a single agent graph but couples the graph state to index type. Suitable if the generation agent needs to be reused for financial with only prompt changes.
+
+- **Option B — separate graph per type**: Define a `financial_rag` LangGraph graph (registered in `langgraph.json`) purpose-built for financial Q&A with tailored retrieval, generation, and evaluation prompts. The `chat/api.py` router dispatches by `index_type`. Maximum flexibility, highest initial cost.
 
 ---
 

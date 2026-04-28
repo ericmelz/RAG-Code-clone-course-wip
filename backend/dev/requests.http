@@ -47,7 +47,7 @@ Content-Type: application/json
 
 {
   "username": "user1",
-  "message": "What was the Total Revenue for WackWidget1000 in FY 2025?",
+  "message": "What was the Total Revenue for WackoWidget1000 in FY 2025?",
   "namespace": "users-ericmelz-data-code-rag-code-clone-course-wip-backend-data-sample-financial-data"
 }
 
@@ -57,6 +57,6 @@ Content-Type: application/json
 
 {
   "username": "user1",
-  "message": "What was the Total Revenue for WackWidget3000 in FY 2025?",
+  "message": "What was the Total Revenue for WackoWidget3000 in FY 2025?",
   "namespace": "users-ericmelz-data-code-rag-code-clone-course-wip-backend-data-sample-financial-data"
 }

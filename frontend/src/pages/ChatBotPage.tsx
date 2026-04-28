@@ -6,14 +6,19 @@ import { useState, useEffect, useMemo } from 'react';
 import IndexingAPI from 'api/indexing';
 import ChatAPI from 'api/chat';
 
+
 /**
- * Interface representing an indexed GitHub repository.
+ * Interface representing an indexed source (Github repo or filesystem).
  */
-interface IndexedRepo {
+interface IndexedSource {
     github_url: string;
     namespace: string;
     indexed_at: string;
+    index_type: string;
+    local_path: string;
+    description: string;
 }
+
 
 /**
  * Chatbot page component for interacting with indexed GitHub repositories.
@@ -29,29 +34,29 @@ interface IndexedRepo {
  * @returns JSX element containing the repository selector and chatbot interface
  */
 export default function ChatBotPage() {
-    const [repos, setRepos] = useState<IndexedRepo[]>([]);
+    const [sources, setSources] = useState<IndexedSource[]>([]);
     const [selectedNamespace, setSelectedNamespace] = useState('');
     const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
 
 
     useEffect(() => {
-        const loadRepos = async () => {
+        const loadSources = async () => {
             try {
-                const response = await IndexingAPI.getIndexedRepos();
-                setRepos(response.repos);
-                console.log(response.repos)
+                const response = await IndexingAPI.getIndexedSources();
+                setSources(response.sources);
+                console.log(response.sources)
             } catch (error) {
                 console.error('Error loading repos:', error);
             }
         };
-        loadRepos();
+        loadSources();
     }, []);
 
     useEffect(() => {
-        if (!selectedNamespace && repos.length > 0) {
-            setSelectedNamespace(repos[0].namespace);
+        if (!selectedNamespace && sources.length > 0) {
+            setSelectedNamespace(sources[0].namespace);
         }
-    }, [repos, selectedNamespace]);
+    }, [sources, selectedNamespace]);
 
     const settings = {
         general: {
@@ -100,7 +105,7 @@ export default function ChatBotPage() {
 
     const flow = {
         start: {
-            message: "Hello! I can help you with questions about a Github Repo. Please select a repository from the dropdown above to get started.",
+            message: "Hello! I can help you with questions about an indexed knowledge base. Please select a namespace from the dropdown above to get started.",
             path: "chat_loop"
         },
         chat_loop: {
@@ -117,33 +122,33 @@ export default function ChatBotPage() {
         }}>
             <Box sx={{ width: '100%', maxWidth: 600 }}>
                 <Typography variant="h6" gutterBottom>
-                    Select Gihub Repo
+                    Select an Index
                 </Typography>
                 <FormControl fullWidth>
-                    <InputLabel>Choose a Repo</InputLabel>
+                    <InputLabel>Choose an Index</InputLabel>
                     <Select
                         value={selectedNamespace}
-                        label="Choose a Repo"
+                        label="Choose an Index"
                         onChange={handleSelectChange}
-                        disabled={repos.length === 0}
+                        disabled={sources.length === 0}
                     >
-                        {repos.length === 0 && (
+                        {sources.length === 0 && (
                             <MenuItem value="" disabled>
                                 <em>No indexed repositories found</em>
                             </MenuItem>
                         )}
-                        {repos?.map((repo) => (
+                        {sources?.map((source) => (
                             <MenuItem
-                                key={repo.namespace}
-                                value={repo.namespace}>
+                                key={source.namespace}
+                                value={source.namespace}>
                                 <Box>
                                     <Typography variant="body1">
-                                        {repo.github_url}
+                                        {source.namespace}
                                     </Typography>
                                     <Typography
                                         variant="caption"
                                         color="text.secondary">
-                                        Indexed {new Date(repo.indexed_at).toLocaleDateString()}
+                                        Indexed {new Date(source.indexed_at).toLocaleDateString()}
                                     </Typography>
                                 </Box>
                             </MenuItem>

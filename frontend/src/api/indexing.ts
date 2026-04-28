@@ -28,13 +28,31 @@ export default class IndexingAPI {
     }
 
     /**
-     * Retrieve all indexed repositories.
-     * 
+     * TODO this is deprecated and should be replaced with getSources()
+     * Retrieve all indexed github repositories.
+     *
      * @returns Promise resolving to array of indexed repository data
      * @throws Error if the API call fails
      */
     static async getIndexedRepos() {
         const path = new URL('indexing/repos', BASE_API).toString()
+        try {
+            const response = await axios.get(path)
+            return response.data
+        } catch (error) {
+            throw new Error(`API call failed: ${error instanceof Error ? error.message : String(error)}`
+            )
+        }
+    }
+
+    /**
+     * Retrieve all indexed repositories.
+     *
+     * @returns Promise resolving to array of indexed repository data
+     * @throws Error if the API call fails
+     */
+    static async getIndexedSources() {
+        const path = new URL('indexing/sources', BASE_API).toString()
         try {
             const response = await axios.get(path)
             return response.data

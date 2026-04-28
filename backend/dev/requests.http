@@ -11,8 +11,8 @@ POST http://localhost:8000/indexing/index/financial
 Content-Type: application/json
 
 {
-  "local_path": "/path/to/financial/docs",
-  "description": "Q3 2024 financial reports"
+  "local_path": "/Users/ericmelz/Data/code/RAG-Code-clone-course-wip/backend/data/sample_financial_data",
+  "description": "AcmeWackoWidgets 2025 financial reports"
 }
 
 ### List all indexed GitHub repos

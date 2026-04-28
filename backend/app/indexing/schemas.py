@@ -1,19 +1,13 @@
 from pydantic import BaseModel, ConfigDict, field_serializer
 from datetime import datetime
 
+from app.indexing.documents import CodeElement  # noqa: F401 — re-exported for existing importers
+
 
 class File(BaseModel):
     content: str
     path: str
     extension: str
-
-
-class CodeElement(BaseModel):
-    text: str
-    source: str
-    header: str | None = None
-    extension: str
-    description: str | None = None
 
 
 class IndexingRequest(BaseModel):

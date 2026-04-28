@@ -5,7 +5,8 @@ from io import BytesIO
 from zipfile import ZipFile
 import logging
 
-from app.indexing.schemas import File, CodeElement
+from app.indexing.schemas import File
+from app.indexing.documents import CodeElement
 
 
 BASE_URL = 'https://codeload.github.com'

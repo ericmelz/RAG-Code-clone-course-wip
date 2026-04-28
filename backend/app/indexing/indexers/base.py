@@ -7,7 +7,7 @@ from pathlib import Path
 
 import numpy as np
 from pinecone import ServerlessSpec
-from pinecone_text.sparse import BM25Encoder, SpladeEncoder, SparseVector
+from pinecone_text.sparse import BM25Encoder, SparseVector
 
 from app.core.clients import async_openai_client, pinecone_client
 from app.indexing.documents import Document
@@ -109,6 +109,7 @@ class BaseIndexer(ABC):
         stride: int = 500,
         batch_size: int = 32,
     ) -> list[SparseVector]:
+        from pinecone_text.sparse import SpladeEncoder  # lazy: avoids 197 MB PyTorch load at startup
         encoder = SpladeEncoder()
 
         def _windows(text: str) -> list[str]:

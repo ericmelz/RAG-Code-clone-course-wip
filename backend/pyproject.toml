@@ -9,6 +9,7 @@ dependencies = [
     "alembic>=1.18.4",
     "celery[redis]>=5.5.3",
     "fastapi>=0.116.1",
+    "fpdf2>=2.8.7",
     "greenlet>=3.2.4",
     "httpx>=0.28.1",
     "ipywidgets>=8.1.8",

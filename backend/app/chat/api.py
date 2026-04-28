@@ -7,7 +7,7 @@ from app.chat.crud import get_chat_history, save_user_message, save_assistant_me
 from app.core.db import get_db
 import logging
 
-from app.indexing.crud import get_indexed_repo_by_url
+from app.indexing.crud import get_indexed_repo_by_url, get_indexed_repo_by_namespace
 
 logger = logging.getLogger(__name__)
 
@@ -23,12 +23,12 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         # Retrieve chat history from database
         chat_messages = await get_chat_history(db, request.username)
         # Initialize state with the indexed namespace linked to this URL
-        repo = await get_indexed_repo_by_url(db, request.github_url)
+        repo = await get_indexed_repo_by_namespace(db, request.namespace)
 
         namespace = repo.namespace
         initial_state = ChatAgentState(
             chat_messages=chat_messages,
-            namespace=namespace
+            namespace=str(namespace)
         )
 
         # Run the agent

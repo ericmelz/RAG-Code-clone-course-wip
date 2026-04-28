@@ -3,7 +3,7 @@ from pydantic import BaseModel
 
 class ChatRequest(BaseModel):
     message: str
-    github_url: str
+    namespace: str
     username: str
 
 class ChatResponse(BaseModel):

@@ -19,24 +19,45 @@ export default function IndexingPage() {
 
     /**
      * Handle the repository indexing process.
-     * 
+     *
      * Validates the URL input, calls the indexing API, and manages
      * the loading state during the operation.
      */
     const handleCrawl = async () => {
-        /* TODO: When the url is ready, the user can click on the button to use the IndexingAPI.indexUrl API. Let’s implement the function that takes care of this logic:
-        - If the url is empty, nothing happens
-        - If it is not, we set loading to true, and call the IndexingAPI.indexUrl API
-        - Once we got the answer, error or not, we set the loading back to false. */
+        if (!url.trim()) return
+
+        setLoading(true)
+        try {
+            const response = await IndexingAPI.indexUrl(url)
+            console.log('Indexing started:', response)
+        } catch (error) {
+            console.error('Indexing error:', error)
+        } finally {
+            setLoading(false)
+        }
     }
 
     return (
-        <Box>
-            <Typography>
+        <Box sx={{ padding: 4, maxWidth: 600, margin: '0 auto' }}>
+            <Typography variant="h6" gutterBottom>
+                Github Repo URL
             </Typography>
-            <Box>
-                <TextField/>
-                <Button></Button>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                <TextField
+                    label="Github Repo URL"
+                    variant="outlined"
+                    value={url}
+                    onChange={(e) => setUrl(e.target.value)}
+                    placeholder="https://github.com/huggingface/transformers"
+                    fullWidth
+                />
+                <Button
+                    variant="contained"
+                    onClick={handleCrawl}
+                    disabled={loading || !url.trim()}
+                >
+                    {loading ? 'Indexing...' : 'Index'}
+                </Button>
             </Box>
         </Box>
     )

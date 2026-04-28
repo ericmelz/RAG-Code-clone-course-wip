@@ -33,8 +33,23 @@ export default function ChatBotPage() {
 
 
     useEffect(() => {
-        /* TODO: load the repos */
+        const loadRepos = async () => {
+            try {
+                const response = await IndexingAPI.getIndexedRepos();
+                setRepos(response.repos);
+                console.log(response.repos)
+            } catch (error) {
+                console.error('Error loading repos:', error);
+            }
+        };
+        loadRepos();
     }, []);
+
+    useEffect(() => {
+        if (!selectedNamespace && repos.length > 0) {
+            setSelectedNamespace(repos[0].namespace);
+        }
+    }, [repos, selectedNamespace]);
 
     const settings = {
         general: {
@@ -44,42 +59,92 @@ export default function ChatBotPage() {
 
     /**
      * Handle user input from the chatbot and send it to the backend API.
-     * 
+     *
      * @param params - Parameters from the chatbot containing user input
      * @returns Promise resolving to the bot's response message
      */
     const handleUserInput = async (params: Params) => {
-        /* TODO: Let’s implement the function that handles a new user’s input by sending the input to the chat API.
-        
-        In the handleUserInput function, the chatbot will not process the input if a GitHub URL is not selected. 
-        If it is selected, it will send the user’s message to the ChatAPI.sendMessages API. 
-        For simplicity, I am calling the current userID “test_id”.
-        */ 
+        try {
+            if (!selectedNamespace) {
+                return "Please select a GitHub repo from the dropdown menu above first.";
+            }
+
+            const response = await ChatAPI.sendMessages({
+                message: params.userInput,
+                namespace: selectedNamespace,
+                userName: 'test_id'
+            });
+
+            return response.response || "I'm sorry, I couldn't process your request.";
+        } catch (error) {
+            console.error('Chat API error:', error);
+            return "Sorry, there was an error processing your request. Please try again.";
+        }
     }
 
-    const flow = {
-        /* TODO: The flow is defined as such:
-        - The user is presented with an introductory message: "Hello! I can help you with questions about a Github Repo. 
-        Please select a repository from the dropdown above to get started."
-        - Then the specified path is “chat_loop“, which means we continue the flow with the chat_loop
-        - The message is handled with handleUserInput
-        */
+    const handleSelectChange = (event: SelectChangeEvent<string>) => {
+        setSelectedNamespace(event.target.value as string);
+    };
 
+    const flow = {
+        start: {
+            message: "Hello! I can help you with questions about a Github Repo. Please select a repository from the dropdown above to get started.",
+            path: "chat_loop"
+        },
+        chat_loop: {
+            message: handleUserInput,
+            path: "chat_loop"
+        }
     }
 
     return (
-        <Box>
-            <Box>
-                <Typography>
+        <Box sx={{
+            width: '100%', display: 'flex',
+            flexDirection: 'column', alignItems: 'center',
+            gap: 2, padding: 2
+        }}>
+            <Box sx={{ width: '100%', maxWidth: 600 }}>
+                <Typography variant="h6" gutterBottom>
+                    Select Gihub Repo
                 </Typography>
-                <FormControl >
-                    <InputLabel></InputLabel>
-                    <Select>
+                <FormControl fullWidth>
+                    <InputLabel>Choose a Repo</InputLabel>
+                    <Select
+                        value={selectedNamespace}
+                        label="Choose a Repo"
+                        onChange={handleSelectChange}
+                        disabled={repos.length === 0}
+                    >
+                        {repos.length === 0 && (
+                            <MenuItem value="" disabled>
+                                <em>No indexed repositories found</em>
+                            </MenuItem>
+                        )}
+                        {repos?.map((repo) => (
+                            <MenuItem
+                                key={repo.namespace}
+                                value={repo.namespace}>
+                                <Box>
+                                    <Typography variant="body1">
+                                        {repo.github_url}
+                                    </Typography>
+                                    <Typography
+                                        variant="caption"
+                                        color="text.secondary">
+                                        Indexed {new Date(repo.indexed_at).toLocaleDateString()}
+                                    </Typography>
+                                </Box>
+                            </MenuItem>
+                        ))}
                     </Select>
                 </FormControl>
             </Box>
-            <Box >
-                <ChatBot/>
+            <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                <ChatBot
+                    settings={settings}
+                    styles={{ chatWindowStyle: { width: 800 } }}
+                    flow={flow}
+                />
             </Box>
         </Box>
     )

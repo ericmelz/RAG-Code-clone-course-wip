@@ -51,6 +51,16 @@ async def get_indexed_repo_by_url(
     return result.scalar_one_or_none()
 
 
+async def get_indexed_repo_by_namespace(
+    session: AsyncSession,
+    namespace: str
+) -> IndexedRepo | None:
+    """Return the indexed repo record matching the provided GitHub URL."""
+    statement = select(IndexedRepo).where(IndexedRepo.namespace == namespace)
+    result = await session.execute(statement)
+    return result.scalar_one_or_none()
+
+
 async def get_indexed_repos(
         session: AsyncSession
 ) -> list[IndexedRepo]:

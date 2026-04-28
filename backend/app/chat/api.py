@@ -29,6 +29,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         if source.index_type == IndexType.FINANCIAL:
             initial_state = BasicChatAgentState(
                 namespace=source.namespace,
+                index_type=source.index_type.value,
                 chat_messages=chat_messages,
             )
             result = await basic_chat_agent.ainvoke(initial_state)

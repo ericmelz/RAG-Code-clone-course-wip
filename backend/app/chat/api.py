@@ -3,10 +3,11 @@ import logging
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.agents.basic_rag.agent import basic_chat_agent
 from app.chat.agents.basic_rag.state import BasicChatAgentState
 from app.chat.agents.chat_agent.agent import chat_agent
 from app.chat.agents.chat_agent.state import ChatAgentState
+from app.chat.agents.quality_control_agent.agent import qc_chat_agent
+from app.chat.agents.quality_control_agent.state import QCChatAgentState
 from app.chat.crud import get_chat_history, save_user_message, save_assistant_message
 from app.chat.schemas import ChatRequest, ChatResponse
 from app.core.db import get_db
@@ -27,12 +28,12 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         source = await get_indexed_repo_by_namespace(db, request.namespace)
 
         if source.index_type == IndexType.FINANCIAL:
-            initial_state = BasicChatAgentState(
+            initial_state = QCChatAgentState(
                 namespace=source.namespace,
                 index_type=str(source.index_type),
                 chat_messages=chat_messages,
             )
-            result = await basic_chat_agent.ainvoke(initial_state)
+            result = await qc_chat_agent.ainvoke(initial_state)
             final_state = BasicChatAgentState(**result)
         else:
             initial_state = ChatAgentState(

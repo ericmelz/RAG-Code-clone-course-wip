@@ -95,8 +95,12 @@ class ConflictHandler:
         print(f"\n{'='*60}\nCONFLICT DETECTED: {state.contradiction_reason}\n{'='*60}\n")
 
         try:
+            logger.info("Posting Slack alert.")
+            print("Posting Slack alert.")
             payload = _build_slack_payload(state)
             await _post_to_slack(payload)
+            print("Slack alert posted.")
+            logger.info(f"Slack alert posted: {payload}")
         except Exception as e:
             logger.error(f"Failed to post conflict to Slack: {e}")
 
